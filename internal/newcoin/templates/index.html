@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>新币套利工具</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <!-- 顶栏 -->
+    <div class="header">
+        <div class="header-left">
+            <h1>新币套利工具</h1>
+            <span class="wallet-info">{{.Wallet}}</span>
+        </div>
+        <div class="header-right">
+            <button type="button" id="close-all-btn" class="btn btn-danger btn-sm"
+                style="margin-right:12px;font-weight:bold;">⚠ 一键清仓</button>
+            {{if .Running}}
+            <span class="status-badge running">运行中</span>
+            {{else}}
+            <span class="status-badge stopped">已停止</span>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- 左右布局 -->
+    <div class="main-layout">
+
+        <!-- ========== 左侧：配置 ========== -->
+        <div class="panel-left">
+
+            <!-- 币种选择 -->
+            <div class="card">
+                <h2>币种选择</h2>
+                <div class="coin-selector">
+                    <div class="coin-search-row">
+                        <input type="text" id="coin-search" placeholder="搜索币种名称..." disabled>
+                        <button type="button" id="load-coins-btn" class="btn btn-primary">加载币种</button>
+                    </div>
+                    <div id="coin-list" class="coin-list"></div>
+                    <div id="coin-info" class="coin-info"></div>
+                </div>
+            </div>
+
+            <!-- 币种配置 -->
+            <div class="card">
+                <h2>币种配置</h2>
+                <form id="config-form">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>代币符号</label>
+                            <input name="symbol" value="{{if .State.Token}}{{.State.Token.Symbol}}{{end}}"
+                                placeholder="如 MYTOKEN" required>
+                        </div>
+                        <div class="form-group">
+                            <label>CEX 交易对</label>
+                            <input name="cex_symbol" value="{{if .State.Token}}{{.State.Token.CEXSymbol}}{{end}}"
+                                placeholder="如 MYTOKENUSDT" required>
+                        </div>
+                        <div class="form-group full">
+                            <label>合约地址</label>
+                            <input name="contract_address"
+                                value="{{if .State.Token}}{{.State.Token.ContractAddress}}{{end}}" placeholder="0x..."
+                                required>
+                        </div>
+                        <div class="form-group">
+                            <label>CEX 倍率</label>
+                            <input name="cex_multiplier" type="number"
+                                value="{{if .State.Token}}{{.State.Token.CEXMultiplier}}{{else}}1{{end}}">
+                        </div>
+                    </div>
+
+                    <!-- 池子发现结果 (只读) -->
+                    <div id="pool-results">
+                        {{if and .State.Token .State.Token.Pools}}
+                        <div class="pool-section">
+                            <div class="pool-section-title">已发现池子 ({{len .State.Token.Pools}} 个)</div>
+                            <div class="pool-result-list">
+                                {{range .State.Token.Pools}}
+                                <div class="pool-result-item {{if eq .Version 3}}v3-item{{else}}v2-item{{end}}">
+                                    <span class="pool-tag {{if eq .Version 3}}v3{{else}}v2{{end}}">V{{.Version}}</span>
+                                    <span class="pool-quote">{{.QuoteToken}}</span>
+                                    <span class="pool-addr">{{.Address}}</span>
+                                    {{if eq .Version 3}}<span class="pool-fee">fee: {{.FeeTier}}</span>{{end}}
+                                </div>
+                                {{end}}
+                            </div>
+                        </div>
+                        {{end}}
+                    </div>
+
+                    <div class="btn-row">
+                        <button type="submit" id="save-config-btn" class="btn btn-primary btn-block">保存配置
+                            (自动发现池子)</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- 交易配置 (合并的设置 + 建仓卡片) -->
+            <div class="card">
+                <h2>交易配置</h2>
+                <form id="trading-config-form">
+                    <div class="settings-grid">
+                        <div class="form-group">
+                            <label>初始建仓 $</label>
+                            <input name="init_inventory_usd" type="number" step="1"
+                                value="{{formatFloat .State.Settings.InitInventoryUSD 0}}">
+                        </div>
+                        <div class="form-group">
+                            <label>单次套利 $</label>
+                            <input name="trade_amount_usd" id="trade-amount-input" type="number" step="1"
+                                value="{{formatFloat .State.Settings.TradeAmountUSD 0}}">
+                        </div>
+                        <div class="form-group">
+                            <label>最低价差 %</label>
+                            <input name="min_spread_pct" type="number" step="0.01"
+                                value="{{formatFloat .State.Settings.MinSpreadPct 2}}">
+                        </div>
+                        <div class="form-group">
+                            <label>DEX滑点 %</label>
+                            <input name="slippage_pct" type="number" step="0.1"
+                                value="{{formatFloat .State.Settings.SlippagePct 1}}">
+                        </div>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="auto_trade" {{if .State.Settings.AutoTrade}}checked{{end}}>
+                            自动交易
+                        </label>
+                    </div>
+
+                    <!-- 费用预估 -->
+                    <div id="cost-estimate" class="cost-estimate">
+                        <div class="cost-title">费用预估 (基于 $<span id="cost-amount">{{formatFloat
+                                .State.Settings.TradeAmountUSD 0}}</span>)</div>
+                        <div class="cost-grid">
+                            <div class="cost-item">
+                                <span class="cost-label">A(DEX&rarr;CEX)</span>
+                                <span class="cost-value" id="cost-dir-a">--</span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="cost-label">B(CEX&rarr;DEX)</span>
+                                <span class="cost-value" id="cost-dir-b">--</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="btn-row">
+                        <button type="button" id="save-settings-btn" class="btn btn-primary btn-block">保存设置</button>
+                    </div>
+                    <div class="btn-row">
+                        {{if and .State.Hedge .State.Hedge.Active}}
+                        <button type="button" id="stop-btn" class="btn btn-danger btn-block">平仓停止</button>
+                        {{else}}
+                        <button type="button" id="start-btn" class="btn btn-success btn-block">一键建仓并启动</button>
+                        {{end}}
+                    </div>
+                </form>
+            </div>
+
+        </div>
+
+        <!-- ========== 右侧：监控 + 仓位 + 交易 ========== -->
+        <div class="panel-right">
+
+            <!-- 实时行情 -->
+            <div class="card">
+                <h2>实时行情 <span id="last-update" class="update-time">--:--:--</span></h2>
+                <div class="price-grid">
+                    <div class="price-item">
+                        <div class="price-label">CEX 现货</div>
+                        <div class="price-value" id="cex-price">$0.000000</div>
+                    </div>
+                    <div class="price-item">
+                        <div class="price-label">DEX</div>
+                        <div class="price-value" id="dex-price">$0.000000</div>
+                    </div>
+                    <div class="price-item spread">
+                        <span class="price-label">价差</span>
+                        <span class="price-value" id="spread-pct">+0.000%</span>
+                        <span class="price-label" style="margin-left:20px">池子深度</span>
+                        <span class="price-value" id="pool-liquidity" style="font-size:1.1em">$0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 仓位总览 -->
+            <div class="card">
+                <h2>仓位总览 <button type="button" id="refresh-pos-btn" class="btn btn-secondary btn-sm">刷新</button></h2>
+                <div id="positions-panel" class="positions-panel">
+                    <div class="pos-grid">
+                        <div class="pos-section">
+                            <div class="pos-section-title">CEX</div>
+                            <div class="pos-row">
+                                <span class="pos-label">USDT</span>
+                                <span class="pos-value" id="pos-cex-usdt">--</span>
+                            </div>
+                            <div class="pos-row">
+                                <span class="pos-label">TOKEN</span>
+                                <span class="pos-value"><span id="pos-cex-token">--</span> <span class="pos-usd"
+                                        id="pos-cex-token-usd"></span></span>
+                            </div>
+                        </div>
+                        <div class="pos-section">
+                            <div class="pos-section-title">链上</div>
+                            <div class="pos-row">
+                                <span class="pos-label">USDT</span>
+                                <span class="pos-value" id="pos-dex-usdt">--</span>
+                            </div>
+                            <div class="pos-row">
+                                <span class="pos-label">TOKEN</span>
+                                <span class="pos-value"><span id="pos-dex-token">--</span> <span class="pos-usd"
+                                        id="pos-dex-token-usd"></span></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="pos-short-row" id="pos-short-row" style="display:none">
+                        <span class="pos-label">空单</span>
+                        <span class="pos-value"><span id="pos-short-qty">--</span> @ <span
+                                id="pos-short-entry">--</span></span>
+                    </div>
+                    <div class="pos-total">
+                        累计盈亏: <span id="pos-realized-pl" class="pos-pl">$0.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 套利操作 -->
+            <div class="card">
+                <h2>套利操作</h2>
+                <div class="trade-box">
+                    <h3>方向A：DEX 便宜</h3>
+                    <div class="desc">链上买入 &rarr; 充值 CEX &rarr; 卖出</div>
+                    <form data-api="/api/trade/dex-to-cex">
+                        <div class="trade-inline">
+                            <div class="form-group">
+                                <label>金额 $</label>
+                                <input name="amount" type="number" step="0.01"
+                                    value="{{formatFloat .State.Settings.TradeAmountUSD 0}}">
+                            </div>
+                            <button type="submit" class="btn btn-success">执行</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="trade-box">
+                    <h3>方向B：CEX 便宜</h3>
+                    <div class="desc">CEX 买入 &rarr; 手动提现 &rarr; 链上卖出</div>
+                    <form data-api="/api/trade/cex-buy">
+                        <div class="trade-inline">
+                            <div class="form-group">
+                                <label>金额 $</label>
+                                <input name="amount" type="number" step="0.01"
+                                    value="{{formatFloat .State.Settings.TradeAmountUSD 0}}">
+                            </div>
+                            <button type="submit" class="btn btn-warning">CEX 买入</button>
+                        </div>
+                    </form>
+                    {{range .State.Trades}}
+                    {{if eq .Status "pending_withdrawal"}}
+                    <div class="pending-tag">
+                        <span class="pending-text">待提现: {{.ID}}</span>
+                        <button class="btn btn-success btn-sm"
+                            onclick="apiPost('/api/trade/dex-sell', {trade_id: '{{.ID}}'})">
+                            确认到账，卖出
+                        </button>
+                    </div>
+                    {{end}}
+                    {{end}}
+                </div>
+            </div>
+
+            <!-- 交易记录 -->
+            <div class="card">
+                <h2>交易记录</h2>
+                {{if .State.Trades}}
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>方向</th>
+                                <th>金额</th>
+                                <th>价差</th>
+                                <th>费用</th>
+                                <th>利润</th>
+                                <th>状态</th>
+                                <th>时间</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range $i, $t := .State.Trades}}
+                            <tr>
+                                <td>{{$i}}</td>
+                                <td>{{if eq $t.Direction "DEX_TO_CEX"}}A: DEX&rarr;CEX{{else}}B: CEX&rarr;DEX{{end}}
+                                </td>
+                                <td>${{formatFloat $t.AmountUSD 2}}</td>
+                                <td>{{formatFloat $t.SpreadPct 3}}%</td>
+                                <td>${{formatFloat $t.TotalFeeUSD 2}}</td>
+                                <td>${{formatFloat $t.ProfitUSD 2}}</td>
+                                <td class="status-{{$t.Status}}">{{$t.Status}}</td>
+                                <td>{{formatTime $t.CreatedAt}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{else}}
+                <p class="dim-text">暂无交易记录</p>
+                {{end}}
+                <div class="total-pl">
+                    累计盈亏: ${{formatFloat .State.TotalPL 2}}
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

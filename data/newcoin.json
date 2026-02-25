@@ -1,0 +1,46 @@
+{
+  "token": {
+    "symbol": "币安人生",
+    "cex_symbol": "币安人生USDT",
+    "contract_address": "0x924fa68a0fc644485b8df8abfa0a41c2e7744444",
+    "decimals": 18,
+    "cex_multiplier": 1,
+    "pools": [
+      {
+        "address": "0x78796f190e2974ca81134B1B0741bD50e4cDDa6B",
+        "token0": "0x55d398326f99059fF775485246999027B3197955",
+        "token1": "0x924fa68a0FC644485b8df8AbfA0A41C2e7744444",
+        "version": 2,
+        "quote_token": "USDT"
+      },
+      {
+        "address": "0x66f289De31EEF70d52186729d2637Ac978CFC56B",
+        "token0": "0x924fa68a0FC644485b8df8AbfA0A41C2e7744444",
+        "token1": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+        "version": 2,
+        "quote_token": "WBNB"
+      }
+    ]
+  },
+  "hedge": {
+    "active": false,
+    "cex_spot_qty": "",
+    "dex_token_qty": "",
+    "short_qty": "",
+    "entry_price": "",
+    "init_amount_usd": 0,
+    "opened_at": "",
+    "spot_order_id": 0,
+    "short_order_id": "",
+    "dex_swap_tx_hash": ""
+  },
+  "trades": null,
+  "settings": {
+    "auto_trade": true,
+    "min_spread_pct": 0.2,
+    "trade_amount_usd": 10,
+    "init_inventory_usd": 20,
+    "slippage_pct": 1
+  },
+  "total_pl": 0
+}
